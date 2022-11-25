@@ -135,6 +135,7 @@ Paint* Paint::Impl::duplicate()
     }
 
     ret->pImpl->opacity = opacity;
+    ret->pImpl->name = name;
 
     if (compData) ret->pImpl->composite(ret, compData->target->duplicate(), compData->method);
 
@@ -453,7 +454,14 @@ Result Paint::blend(BlendMethod method) const noexcept
         pImpl->blendMethod = method;
         pImpl->renderFlag |= RenderUpdateFlag::Blend;
     }
+    return Result::Success;
+}
 
+
+Result Paint::name(std::string name) const noexcept
+{
+    if (name.length() > 128) return Result::InvalidArguments;
+    pImpl->name = name;
     return Result::Success;
 }
 
@@ -462,3 +470,10 @@ BlendMethod Paint::blend() const noexcept
 {
     return pImpl->blendMethod;
 }
+
+
+std::string Paint::name() const noexcept
+{
+    return pImpl->name;
+}
+
