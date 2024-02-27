@@ -364,3 +364,10 @@ void LottieLoader::sync()
 {
     this->done();
 }
+
+
+const char* LottieLoader::data(uint32_t& size)
+{
+    size = this->size;
+    return content;
+}
