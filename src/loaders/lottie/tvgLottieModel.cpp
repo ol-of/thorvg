@@ -89,7 +89,7 @@ void LottieTrimpath::segment(float frameNo, float& start, float& end)
 }
 
 
-Fill* LottieGradient::fill(float frameNo)
+Fill* LottieGradient::fill(float frameNo, LottieExpressions& exps)
 {
     Fill* fill = nullptr;
 
@@ -126,7 +126,7 @@ Fill* LottieGradient::fill(float frameNo)
 
     if (!fill) return nullptr;
 
-    colorStops(frameNo, fill);
+    colorStops(frameNo, fill, exps);
 
     return fill;
 }

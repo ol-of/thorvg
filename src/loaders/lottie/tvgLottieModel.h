@@ -474,7 +474,7 @@ struct LottieGradient : LottieObject
         return false;
     }
 
-    Fill* fill(float frameNo);
+    Fill* fill(float frameNo, LottieExpressions& exps);
 
     LottiePoint start = Point{0.0f, 0.0f};
     LottiePoint end = Point{0.0f, 0.0f};
@@ -797,6 +797,7 @@ struct LottieComposition
     Array<LottieInterpolator*> interpolators;
     Array<LottieFont*> fonts;
     Array<LottieSlot*> slots;
+    bool expressions = false;
     bool initiated = false;
 };
 

@@ -28,6 +28,7 @@
 #include "tvgMath.h"
 #include "tvgLines.h"
 #include "tvgLottieInterpolator.h"
+#include "tvgLottieExpressions.h"
 
 struct PathSet
 {
@@ -113,8 +114,14 @@ static void copy(PathSet& pathset, Array<PathCommand>& outCmds)
 }
 
 
+struct LottieKey
+{
+
+};
+
+
 template<typename T>
-struct LottieScalarFrame
+struct LottieScalarFrame : LottieKey
 {
     T value;                    //keyframe value
     float no;                   //frame number
@@ -136,7 +143,7 @@ struct LottieScalarFrame
 
 
 template<typename T>
-struct LottieVectorFrame
+struct LottieVectorFrame : LottieKey
 {
     T value;                    //keyframe value
     float no;                   //frame number
@@ -205,6 +212,11 @@ struct LottieProperty
 {
     enum class Type : uint8_t { Point = 0, Float, Opacity, Color, PathSet, ColorStop, Position, TextDoc, Invalid };
     virtual ~LottieProperty() {}
+
+    LottieExpression* exp = nullptr;
+
+    virtual uint32_t frameCnt() = 0;
+    virtual uint32_t nearest(float time) = 0;
 };
 
 
@@ -226,6 +238,22 @@ struct LottieGenericProperty : LottieProperty
     void release()
     {
         delete(frames);
+        frames = nullptr;
+        if (exp) {
+            delete(exp);
+            exp = nullptr;
+        }
+    }
+
+    uint32_t nearest(float frameNo) override
+    {
+        return bsearch(frames, frameNo);
+    }
+
+    uint32_t frameCnt() override
+    {
+        if (frames) return frames->count;
+        else return 1;
     }
 
     LottieScalarFrame<T>& newFrame()
@@ -256,6 +284,13 @@ struct LottieGenericProperty : LottieProperty
         return frame->interpolate(frame + 1, frameNo);
     }
 
+    T operator()(float frameNo, LottieExpressions& exps)
+    {
+        T out{};
+        if (exp && exps.result<LottieGenericProperty<T>>(frameNo, out, exp)) return out;
+        return operator()(frameNo);
+    }
+
     T& operator=(const T& other)
     {
         //shallow copy, used for slot overriding
@@ -283,6 +318,11 @@ struct LottiePathSet : LottieProperty
 
     void release()
     {
+        if (exp) {
+            delete(exp);
+            exp = nullptr;
+        }
+
         free(value.cmds);
         free(value.pts);
 
@@ -294,6 +334,17 @@ struct LottiePathSet : LottieProperty
         }
         free(frames->data);
         free(frames);
+    }
+
+    uint32_t nearest(float frameNo) override
+    {
+        return bsearch(frames, frameNo);
+    }
+
+    uint32_t frameCnt() override
+    {
+        if (frames) return frames->count;
+        else return 1;
     }
 
     LottieScalarFrame<PathSet>& newFrame()
@@ -315,8 +366,10 @@ struct LottiePathSet : LottieProperty
         return (*frames)[frames->count];
     }
 
-    bool operator()(float frameNo, Array<PathCommand>& cmds, Array<Point>& pts)
+    bool operator()(float frameNo, Array<PathCommand>& cmds, Array<Point>& pts, LottieExpressions& exps)
     {
+        if (exp && exps.result<LottiePathSet>(frameNo, cmds, pts, exp)) return true;
+
         if (!frames) {
             copy(value, cmds);
             copy(value, pts);
@@ -382,6 +435,11 @@ struct LottieColorStop : LottieProperty
 
     void release()
     {
+        if (exp) {
+            delete(exp);
+            exp = nullptr;
+        }
+
         if (value.data) {
             free(value.data);
             value.data = nullptr;
@@ -395,6 +453,17 @@ struct LottieColorStop : LottieProperty
         free(frames->data);
         free(frames);
         frames = nullptr;
+    }
+
+    uint32_t nearest(float frameNo) override
+    {
+        return bsearch(frames, frameNo);
+    }
+
+    uint32_t frameCnt() override
+    {
+        if (frames) return frames->count;
+        else return 1;
     }
 
     LottieScalarFrame<ColorStop>& newFrame()
@@ -416,27 +485,23 @@ struct LottieColorStop : LottieProperty
         return (*frames)[frames->count];
     }
 
-    void operator()(float frameNo, Fill* fill)
+    Result operator()(float frameNo, Fill* fill, LottieExpressions& exps)
     {
-        if (!frames) {
-            fill->colorStops(value.data, count);
-            return;
-        }
+        if (exp && exps.result<LottieColorStop>(frameNo, fill, exp)) return Result::Success;
+
+        if (!frames) return fill->colorStops(value.data, count);
 
         if (frames->count == 1 || frameNo <= frames->first().no) {
-            fill->colorStops(frames->first().value.data, count);
-            return;
+            return fill->colorStops(frames->first().value.data, count);
         }
 
         if (frameNo >= frames->last().no) {
-            fill->colorStops(frames->last().value.data, count);
-            return;
+            return fill->colorStops(frames->last().value.data, count);
         }
 
         auto frame = frames->data + bsearch(frames, frameNo);
         if (frame->no == frameNo) {
-            fill->colorStops(frame->value.data, count);
-            return;
+            return fill->colorStops(frame->value.data, count);
         }
 
         //interpolate
@@ -461,7 +526,7 @@ struct LottieColorStop : LottieProperty
             auto a = mathLerp(s->a, e->a, t);
             result.push({offset, r, g, b, a});
         }
-        fill->colorStops(result.data, count);
+        return fill->colorStops(result.data, count);
     }
 
     LottieColorStop& operator=(const LottieColorStop& other)
@@ -501,6 +566,23 @@ struct LottiePosition : LottieProperty
     void release()
     {
         delete(frames);
+        frames = nullptr;
+
+        if (exp) {
+            delete(exp);
+            exp = nullptr;
+        }
+    }
+
+    uint32_t nearest(float frameNo) override
+    {
+        return bsearch(frames, frameNo);
+    }
+
+    uint32_t frameCnt() override
+    {
+        if (frames) return frames->count;
+        else return 1;
     }
 
     LottieVectorFrame<Point>& newFrame()
@@ -529,6 +611,13 @@ struct LottiePosition : LottieProperty
         auto frame = frames->data + bsearch(frames, frameNo);
         if (frame->no == frameNo) return frame->value;
         return frame->interpolate(frame + 1, frameNo);
+    }
+
+    Point operator()(float frameNo, LottieExpressions& exps)
+    {
+        Point out{};
+        if (exp && exps.result<LottiePosition>(frameNo, out, exp)) return out;
+        return operator()(frameNo);
     }
 
     float angle(float frameNo)
@@ -563,6 +652,11 @@ struct LottieTextDoc : LottieProperty
 
     void release()
     {
+        if (exp) {
+            delete(exp);
+            exp = nullptr;
+        }
+
         if (value.text) {
             free(value.text);
             value.text = nullptr;
@@ -580,6 +674,17 @@ struct LottieTextDoc : LottieProperty
         }
         delete(frames);
         frames = nullptr;
+    }
+
+    uint32_t nearest(float frameNo) override
+    {
+        return bsearch(frames, frameNo);
+    }
+
+    uint32_t frameCnt() override
+    {
+        if (frames) return frames->count;
+        else return 1;
     }
 
     LottieScalarFrame<TextDocument>& newFrame()
